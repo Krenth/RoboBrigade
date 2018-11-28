@@ -7,10 +7,21 @@
 N = 3;
 r = Robotarium('NumberOfRobots', N, 'ShowFigure', true);
 
+videoFLag = 0;
+
 % Initialize x so that we don't run into problems later.  This isn't always
 % necessary
+
 x = r.get_poses();
 r.step();
+
+if videoFLag 
+    vid = VideoWriter('RoboBrigade_Recon.mp4', 'MPEG-4');
+    vid.Quality = 100;
+    vid.FrameRate = 72;
+    open(vid);
+    writeVideo(vid, getframe(gcf));
+end
 
 % Create a barrier certificate so that the robots don't collide
 si_barrier_certificate = create_si_barrier_certificate('SafetyRadius', 0.22);
@@ -35,10 +46,10 @@ controller = create_si_position_controller();
 %     
 %     r.set_velocities(1:N, dxu);
 %     r.step();
-% end
+% end\
 
 %% Create the desired Laplacian
-iterations = 6500;
+iterations = 6600;
 l = .53;
 p = 1.5;
 q = .9183681179;
@@ -64,22 +75,22 @@ dxi = zeros(2, N);
 state = 1;
 
 % These are gains for our formation control algorithm
-formation_control_gain =20;
+formation_control_gain = 15;
 
 
 
 %% Grab tools we need to convert from single-integrator to unicycle dynamics
 
 % Single-integrator -> unicycle dynamics mapping
-si_to_uni_dyn = create_si_to_uni_mapping2('LinearVelocityGain', 0.25, 'AngularVelocityLimit', 7.5);
+si_to_uni_dyn = create_si_to_uni_mapping2('LinearVelocityGain', 0.7, 'AngularVelocityLimit', 0.2*r.max_angular_velocity);
 % Single-integrator barrier certificates
-si_barrier_cert = create_si_barrier_certificate('SafetyRadius', 0.15);
+si_barrier_cert = create_si_barrier_certificate('SafetyRadius', 1.5*r.robot_diameter);
 % Single-integrator position controller
 si_pos_controller = create_si_position_controller();
 
 % waypoints = [1 0.5; -1 0.5; -1 -0.5; 1 -0.5]';
 waypoints = [0.7 0.6; -.7 .6; -1.3 0; -.7 -.6; .7 -.6; 1.3 0]';
-close_enough = 0.05;
+close_enough = 0.08;
 state = 1;
 for t = 1:iterations
     
@@ -96,21 +107,22 @@ for t = 1:iterations
         neighbors = topological_neighbors(L, i);
         
         for j = neighbors
+            difsq = norm(x(1:2, j) - ...
+                x(1:2, i))^2 - weights(i,j)^2;
             if (norm(x(1:2, 3) - x(1:2, i))^2 < weights(i,3))
                 dxi(:,i) = 0;
             elseif (i==3)
+                wptVec = si_pos_controller(x(1:2, 3), waypoint);
+                wptDir = wptVec/norm(wptVec);
                 dxi(:, i) = dxi(:, i) + ...
-                    formation_control_gain*...
-                    norm(si_pos_controller(x(1:2, 3), waypoint)/(N-1))*...
-                    (norm(x(1:2, j) - ...
-                    x(1:2, i))^2 - weights(i,j)^2)*(x(1:2, j) - ...
+                    0.5*formation_control_gain*...
+                    norm(wptVec)/(N-1)*...
+                    (difsq)*(x(1:2, j) - ...
                     x(1:2, i)) + ...
-                    0.07*formation_control_gain*...
-                    si_pos_controller(x(1:2, 3), waypoint)/(N-1);
+                    0.4*wptDir/(N-1);
             else
                 dxi(:, i) = dxi(:, i) + ...
-                    formation_control_gain*(norm(x(1:2, j) - ...
-                    x(1:2, i))^2 - weights(i,j)^2)*(x(1:2, j) - ...
+                    formation_control_gain*(difsq)*(x(1:2, j) - ...
                     x(1:2, i));
             end
             
@@ -165,8 +177,13 @@ for t = 1:iterations
     
     %Iterate experiment
     r.step();
+    if videoFLag && mod(t,10)                               % Record a video frame every 10 iterations
+            writeVideo(vid, getframe(gcf)); 
+    end
 end
 
+
+if videoFLag; close(vid); end
 % We can call this function to debug our experiment!  Fix all the errors
 % before submitting to maximize the chance that your experiment runs
 % successfully.
