@@ -11,10 +11,20 @@ N_enemy = 1;
 N = N_cycle + N_patrol + N_enemy;
 r = Robotarium('NumberOfRobots', N, 'ShowFigure', true);
 
+videoFLag = 1;
+
 % Initialize x so that we don't run into problems later.  This isn't always
 % necessary
 x = r.get_poses();
 r.step();
+
+if videoFLag 
+    vid = VideoWriter('RoboBrigade_Defense.mp4', 'MPEG-4');
+    vid.Quality = 100;
+    vid.FrameRate = 72;
+    open(vid);
+    writeVideo(vid, getframe(gcf));
+end
 
 % Create a barrier certificate so that the robots don't collide
 si_barrier_certificate = create_si_barrier_certificate('SafetyRadius', 0.15);
@@ -22,7 +32,7 @@ si_to_uni_dynamics = create_si_to_uni_mapping2('LinearVelocityGain', 0.25, 'Angu
         
 % Variables Needed
 circle_radius = 0.2;
-circle_center = [-1.2;0];
+circle_center = [-1.1;0];
 
 circular_ic = [circle_radius*cos(0:2*pi/N_cycle:2*pi*(1-1/N_cycle)) + circle_center(1)...
     * ones(1,N_cycle) ; circle_radius*sin(0:2*pi/N_cycle:2*pi*(1- 1/N_cycle)) + ...
@@ -56,7 +66,7 @@ end
 %% Grab tools we need to convert from single-integrator to unicycle dynamics
 
 % Single-integrator -> unicycle dynamics mapping
-si_to_uni_dyn = create_si_to_uni_mapping2('LinearVelocityGain', 0.25, 'AngularVelocityLimit', 7.5);
+si_to_uni_dyn = create_si_to_uni_mapping2('LinearVelocityGain', 0.7, 'AngularVelocityLimit', 0.32*r.max_angular_velocity);
 % Single-integrator barrier certificates
 si_barrier_cert = create_si_barrier_certificate('SafetyRadius', 0.15);
 % Single-integrator position controller
@@ -66,10 +76,10 @@ si_pos_controller = create_si_position_controller();
 
 iterations = 3000;
 dxi = zeros(2, N);
-formation_control_gain = 10;
+formation_control_gain = 15;
 
 % waypoints for enemy movement and initial position of the patrol team
-waypoints_enemy = [1.4,0.9;0.6,0.9;0.6,-0.9;1.4,-0.9]';
+waypoints_enemy = [1.35,0.8;0.5,0.8;0.5,-0.8;1.35,-0.8]';
 close_enough = 0.05;
 enemy_state = 1;
 
@@ -101,9 +111,9 @@ for t = 1:iterations
         R = [cos(theta), sin(theta); -sin(theta), cos(theta)];
         
         if i == N_cycle
-            dxi(:, i) = R*(x(1:2,1) - x(1:2,N_cycle));
+            dxi(:, i) = 0.2*R*(x(1:2,1) - x(1:2,N_cycle));
         else
-            dxi(:, i) = R*(x(1:2,i+1) - x(1:2,i));
+            dxi(:, i) = 0.2*R*(x(1:2,i+1) - x(1:2,i));
         end 
         
         if (norm(dxi(:,i))>r.max_linear_velocity)
@@ -120,13 +130,13 @@ for t = 1:iterations
         else
             for j = neighbors
                 if (i == N_cycle + N_patrol)
-                    dxi(:, i) = dxi(:, i) + formation_control_gain*...
+                    dxi(:, i) = dxi(:, i) + 0.25*formation_control_gain*...
                     (norm(x(1:2, j+N_cycle) - x(1:2, i))^2 - weights(i-N_cycle,j)^2)*...
                     (x(1:2, j+N_cycle) - x(1:2, i)) + ...
-                    formation_control_gain*2*((circle_center - x(1:2,i)) + (x(1:2,N) - x(1:2,i)));
+                    2*((circle_center - x(1:2,i)) + 1.3*(x(1:2,N) - x(1:2,i)));
                 else
                     dxi(:, i) = dxi(:, i) + ...
-                    formation_control_gain*(norm(x(1:2, j+N_cycle) - ...
+                    formation_control_gain*2*(norm(x(1:2, j+N_cycle) - ...
                     x(1:2, i))^2 - weights(i-N_cycle,j)^2)*(x(1:2, j+N_cycle) - ...
                     x(1:2, i));
                 end
@@ -140,12 +150,16 @@ for t = 1:iterations
     
     % dynamics for the enemy (robot 9)
     waypoint_enemy = waypoints_enemy(:,enemy_state);
-    dxi(:,N) = si_pos_controller(x(1:2, N), waypoint_enemy);
+    enemMove = si_pos_controller(x(1:2, N), waypoint_enemy);
+    dxi(:,N) = 0.2*enemMove/norm(enemMove);
     if(norm(x(1:2, N) - waypoint_enemy) < close_enough)
         enemy_state = enemy_state + 1;
         if (enemy_state == 5)
             enemy_state = 1;
         end
+    end
+    if (norm(dxi(:,N))>r.max_linear_velocity)
+            dxi(:,N) = r.max_linear_velocity*(dxi(:,N)./norm(dxi(:,N)));
     end
     
     %% Use barrier certificate and convert to unicycle dynamics
@@ -159,7 +173,12 @@ for t = 1:iterations
     
     %Iterate experiment
     r.step();
+    if videoFLag && mod(t,10)                               % Record a video frame every 10 iterations
+            writeVideo(vid, getframe(gcf)); 
+    end
 end
+
+if videoFLag; close(vid); end
 
 % We can call this function to debug our experiment!  Fix all the errors
 % before submitting to maximize the chance that your experiment runs
