@@ -11,7 +11,7 @@ N_enemy = 1;
 N = N_cycle + N_patrol + N_enemy;
 r = Robotarium('NumberOfRobots', N, 'ShowFigure', true);
 
-videoFLag = 1;
+videoFLag = 0;
 
 % Initialize x so that we don't run into problems later.  This isn't always
 % necessary
